@@ -113,7 +113,7 @@ def convertToOriginal(arr):
     return s
 
 
-def establish_vocabFile():
+def establish_vocabFile(weightsDirectory):
     from std import MySQL
     instance = MySQL.instance
     deletes = []
@@ -143,10 +143,11 @@ def establish_vocabFile():
             
         utility.normalize(dic)
 
-    vocabFile = utility.weightsDirectory + "jp/segment/vocab.csv"
+    vocabFile = weightsDirectory + "jp/segment/vocab.csv"
     
+    from std.file import Text
     olddic = {}
-    for line in utility.Text(vocabFile):
+    for line in Text(vocabFile):
         text, weight = line.split('\t')
         olddic[text] = float(weight)
     
@@ -163,13 +164,14 @@ def establish_vocabFile():
     for key in newdic.keys() - olddic.keys():
         olddic[key] = newdic[key]
 
-    utility.normalize(olddic)
+    std.normalize(olddic)
 
     with open(vocabFile, 'w', encoding='utf8') as file:
         for text, cnt in olddic.items():
             print(text + '\t' + str(cnt), file=file)
 
-    utility.eol_convert(vocabFile)
+    from std.file import eol_convert
+    eol_convert(vocabFile)
 
     if updates:
         instance.load_data('tbl_segment_jp', updates, replace=True)

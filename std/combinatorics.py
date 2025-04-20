@@ -27,7 +27,7 @@ def HeapPermutation(k, A):
 def generate_all_permutation(A):
     yield from HeapPermutation(len(A), A)
 
-        
+
 def skip_first_permutation(A):
     generator = HeapPermutation(len(A), A)
     next(generator)

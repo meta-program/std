@@ -4,7 +4,8 @@ __pycache__/
 *$py.class
 
 # C extensions
-#*.so
+*.o
+*.d
 
 # Distribution / packaging
 .Python
@@ -90,4 +91,4 @@ ENV/
 *.npy
 *.pkl
 
-# .vscode/
+*.exe

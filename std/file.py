@@ -341,3 +341,22 @@ def read_excel(file):
             for j in range(sheet.ncols):
                 yield name, i, j, array[j]
         
+
+def eol_convert(fileName):
+    def eol_convert(fileName):
+        with open(fileName, "rb") as f:
+            data = bytearray(os.path.getsize(fileName))
+            f.readinto(data)
+            # print(data)
+            data = data.replace(b"\r\n", b"\n")
+
+        with open(fileName, "wb") as f:
+            # print(data)
+            f.write(data)
+
+    from std import listdir
+    if fileName.startswith('.'):
+        for file in listdir('.', fileName, recursive=True):
+            eol_convert(file)
+    else:
+        eol_convert(fileName)

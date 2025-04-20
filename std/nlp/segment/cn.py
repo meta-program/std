@@ -197,7 +197,8 @@ def establish_vocabFile():
             
             print(text + '\t' + str(cnt), file=file)
 
-    std.eol_convert(vocabFile)
+    from std.file import eol_convert
+    eol_convert(vocabFile)
     
     if updates:
         instance.load_data('tbl_segment_cn', updates, replace=True)

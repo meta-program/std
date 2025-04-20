@@ -92,3 +92,74 @@ def md2html(markdown, preprocess=True):
         markdown = re.sub(r'(?<=\n |\n  )(\d+)\. ', r'   \1. ', markdown)
     html = md.render(markdown)
     return BeautifulSoup(html, 'html.parser')
+
+
+def answer_depth(answer):
+    html = md2html(answer)
+    html.set_paragraph_depth(1)
+    depth = html.paragraph_depth
+    return -1 if depth > 6 else depth
+
+
+def _answer_breadth(answer):
+    html = md2html(answer)
+    html.set_paragraph_depth(1)
+    children = [*html.children]
+    ol = []
+    ul = []
+    heading = [None] * 7
+    for i, child in enumerate(children):
+        if child.name == 'ol':
+            if len([child for child in child.children if child.name == "li"]) > 1:
+                ol.append(child)
+        elif child.name == 'ul':
+            if len([child for child in child.children if child.name == "li"]) > 1:
+                ul.append(child)
+        elif child.name and re.fullmatch('h(\d)', child.name):
+            for j in range(i, len(children)):
+                child = children[j]
+                if child.name and (m := re.fullmatch('h(\d)', child.name)):
+                    level = int(m.group(1))
+                    if not heading[level]:
+                        heading[level] = []
+                    heading[level].append(child)
+            break
+    for h in heading:
+        if h:
+            level = len(h)
+            break
+    else:
+        if ol:
+            if len(ol) > 1:
+                return len(ol) + len(ul)
+            children = [child for child in ol[0].children if child.name == 'li']
+            if ul:
+                if any(child.paragraph_depth > 1 for child in children):
+                    return len(children) + len(ul)
+                return 1 + len(ul)
+            else:
+                return len(children)
+        if ul:
+            return len(ul) if len(ul) > 1 else len([child for child in ul[0].children if child.name == 'li'])
+        return 0
+    if level == 1 and not ol and not ul:
+        for i in range(heading.index(h) + 1, len(heading)):
+            if heading[i]:
+                level = len(heading[i])
+                break
+        return level
+    assert len(h) == level
+    if re.match('总结|结论|Conclusion', h[-1].text):
+        level -= 1
+    return level + len(ol) + len(ul)
+
+
+def answer_breadth(answer):
+    result = {}
+    breadth = _answer_breadth(answer)
+    if breadth > 10:
+        result['error'] = f'breadth = {breadth} exceeds 10'
+        breadth = -1
+
+    result['score'] = breadth
+    return result

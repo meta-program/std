@@ -406,8 +406,9 @@ class MySQLConnector(Database):
                                     break
                             else:
                                 print('\t'.join(args), file=file)
-                            
-                std.eol_convert(tsv)
+
+                from std.file import eol_convert
+                eol_convert(tsv)
                 yield tsv
                 
         rowcount = 0
@@ -417,10 +418,19 @@ class MySQLConnector(Database):
 
     def load_data(self, table, *args, **kwargs):
         if args:
-            arg, = args
-            if isinstance(arg, str):
-                return self.load_data_from_tsv(table, arg, **kwargs)
-            return self.load_data_from_list(table, arg, **kwargs)
+            data, = args
+            if isinstance(data, str):
+                if os.path.isdir(data):
+                    import json
+                    import pandas as pd
+                    array = []
+                    for file in std.listdir(data, ext='parquet'):
+                        for _, row in pd.read_parquet(file).iterrows():
+                            array.append(json.loads(row.to_json()))
+                    return self.load_data_from_list(table, array, **kwargs)
+                else:
+                    return self.load_data_from_tsv(table, data, **kwargs)
+            return self.load_data_from_list(table, data, **kwargs)
         else:
             if replace := kwargs.get('replace'):
                 ...
@@ -681,7 +691,7 @@ def mysqlStr(value, Type=None):
 
 
 if __name__ == '__main__':
-    ...
+    instance.load_data('AI-MO:NuminaMath-CoT', r'F:\gitlab\assets\math')
 
 #ln -s /usr/local/mysql/mysql.sock /tmp/mysql.sock
 #mysql -uuser -puser -Daxiom

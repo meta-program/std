@@ -4,5 +4,8 @@
 *.js    eol=lf
 *.vue    eol=lf
 *.php    eol=lf
+*.h    eol=lf
+*.cpp    eol=lf
+*.c    eol=lf
 *.css    eol=lf
 *.txt    eol=lf

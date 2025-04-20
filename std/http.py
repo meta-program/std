@@ -38,7 +38,7 @@ def json_post(url, json, headers={}, stream=False):
 def curl_json_post(url, data):
     data = json.dumps(data, ensure_ascii=False)
     data = re.sub(r'(?<!\\)[\\]"', r"\\u0022", data)
-    data = re.sub(r'(?<!\\)"', '\\"', data)
+    # data = re.sub(r'(?<!\\)"', '\\"', data)
     data = re.sub(r"(?<!\\)'", r"\\u0027", data)
     data = re.sub(r"(?<!\\)(([\\][\\])+)(?!\\)", r"\1\1", data)
     data = re.sub(r"[$]", "\\$", data)
@@ -92,3 +92,8 @@ def octet_stream_post(url, filename, data):
 def getParameters(request):
     #from flask.globals import request
     return {**request.args} | {**request.form} or {**request.json}
+
+
+if __name__ == '__main__':
+    curl = curl_json_post('http://192.168.18.131:5001/RLHFlow/Llama3-8B-v0.1/reward', {"prompt": "1 + 1 = ?", "answer": "1 + 1 = 2"})
+    print(curl)

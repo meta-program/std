@@ -120,25 +120,6 @@ def listdir_recursive(rootdir, ext='.txt'):
                 yield path
 
 
-def eol_convert(fileName):
-    def eol_convert(fileName):
-        with open(fileName, "rb") as f:
-            data = bytearray(os.path.getsize(fileName))
-            f.readinto(data)
-            # print(data)
-            data = data.replace(b"\r\n", b"\n")
-
-        with open(fileName, "wb") as f:
-            # print(data)
-            f.write(data)
-
-    if fileName.startswith('.'):
-        for file in listdir('.', fileName, recursive=True):
-            eol_convert(file)
-    else:
-        eol_convert(fileName)
-
-
 def cstring(s):
     return bytes(s, 'utf8')
 
@@ -1140,9 +1121,38 @@ def prod(iterable):
     return reduce(lambda x, y: x * y, iterable)
 
 
+def compile_cpp(dirname):
+    """Compile C++ cpp functions at runtime. Make sure this is invoked on a single process.
+    """
+    import os
+    import subprocess
+    if os.path.isfile(dirname):
+        dirname = os.path.dirname(dirname)
+
+    dirname = os.path.abspath(dirname)
+    print(f"Compiling C++ functions in {dirname}")
+    command = ["make", "-C", dirname]
+    lock = f"{dirname}/Makefile.lock"
+    if not os.path.exists(lock):
+        with open(lock, 'w+') as _:
+            print("creating lock file", lock)
+            result = subprocess.run(command, capture_output=True, text=True)
+            if os.path.exists(lock):
+                os.remove(lock)
+
+            print("Standard Output:")
+            print(result.stdout)
+            if result.returncode != 0:
+                import sys
+                print("Failed to compile the C++ functions")
+                print("Standard Error:")
+                print(result.stderr)
+                sys.exit(1)
+
 if __name__ == '__main__':
     arr = [*range(10)]
     former, latter = array_split(arr, slice(-2, -8, -2))
     print(former)
     print(latter)
+
 

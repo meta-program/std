@@ -1,1 +1,7 @@
 regex
+# used in compiling C++ function
+pybind11
+# from markdown_it import MarkdownIt
+markdown-it-py
+# from bs4 import BeautifulSoup, Tag, NavigableString
+beautifulsoup4
