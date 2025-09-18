@@ -1,5 +1,13 @@
 from std.format import format_number
 
+def get_statistics(tensor, json=True):
+    tensor = tensor.float()
+    keys = 'mean', 'std', 'min', 'max', 'sum'
+    values = [getattr(tensor, key)() for key in keys]
+    values = [value.item() for value in values]
+    if json:
+        return {key : values[i] for i, key in enumerate(keys)}
+    return values
 
 def plotFunction(x, *y, label=None):
     """_summary_

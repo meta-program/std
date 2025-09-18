@@ -1,9 +1,10 @@
-import mysql.connector, std, re, random, time, os
+import mysql.connector, std, re, random, time, os, json, pandas as pd, zipfile, tarfile, gzip, pandas
+from tqdm import tqdm
 from collections import defaultdict
 
 
 def format_table(table):
-    if m := re.match('(\w+)\.(\S+)$', table):
+    if m := re.match(r'(\w+)\.(\S+)$', table):
         return "%s.`%s`" % m.groups()
     else:
         return "`%s`" % table
@@ -34,7 +35,7 @@ export MYSQL_HOST=yourIPAddress
             self.conn = mysql.connector.connect(**self.kwargs)
         except mysql.connector.errors.ProgrammingError as err:
             print(err.msg)
-            m = re.compile("Unknown database '(\w+)'").search(err.msg)
+            m = re.compile(r"Unknown database '(\w+)'").search(err.msg)
             assert m
             assert m[1] == self.database
             kwargs = self.kwargs
@@ -98,12 +99,10 @@ export MYSQL_HOST=yourIPAddress
         
         if batch_size:
             [*batches] = std.batches(seq_params, batch_size)
-            if verbose and len(batches) == 1:
-                verbose = False
-                         
+            inner_verbose = True if verbose and len(batches) > 1 else False
             rowcount = 0
             for i, seq_params in enumerate(batches):
-                if verbose:
+                if inner_verbose:
                     print("executing instances from", i * batch_size, 'to', (i + 1) * batch_size, "(excluded)")
                 cursor.executemany(sql, seq_params)
                 rowcount += cursor.rowcount
@@ -112,6 +111,8 @@ export MYSQL_HOST=yourIPAddress
             rowcount = cursor.rowcount
             
         self.commit()
+        if verbose:
+            print(f"rowcount = {rowcount} from {sql}")
         return rowcount
 
     def show_create_table(self, table):
@@ -147,13 +148,13 @@ class MySQLConnector(Database):
 
     def __init__(self):
         Database.__init__(self)
-        
+
     def load_data_from_list(self, table, array, step=10000, ignore=True, delete=True, **kwargs):
         try:
             desc = self.desc_table(table)
         except mysql.connector.errors.ProgrammingError as err:
             print(err)
-            m = re.search("1146 \(42S02\): Table '(\w+).(\S+)' doesn't exist", str(err))
+            m = re.search(r"1146 \(42S02\): Table '(\w+).(\S+)' doesn't exist", str(err))
             database, table = m.groups()
             print('database =', database)
             print('table =', table)
@@ -166,7 +167,7 @@ class MySQLConnector(Database):
             dtype = std.Object()
             for obj in array:
                 for key in keys:
-                    match obj.get(key):
+                    match val := obj.get(key):
                         case None:
                             ...
                     
@@ -184,7 +185,14 @@ class MySQLConnector(Database):
 
                         case str():
                             if dtype[key] is None or dtype[key] is bool or dtype[key] is int or dtype[key] is float:
-                                dtype[key] = str
+                                if re.fullmatch(r'\{.*\}', val) or re.fullmatch(r'\[.*\]', val):
+                                    try:
+                                        json.loads(val)
+                                        dtype[key] = object
+                                    except json.JSONDecodeError:
+                                        dtype[key] = str
+                                else:
+                                    dtype[key] = str
             
                         case list() | tuple() | set() | dict():
                             if dtype[key] is None or dtype[key] is bool or dtype[key] is int or dtype[key] is float or dtype[key] is str:
@@ -198,30 +206,17 @@ class MySQLConnector(Database):
             def detect_primary_key(array, key):
                 primary_keys = set()
                 for obj in array:
-                    if pk := obj.get(key):
-                        if pk in primary_keys:
-                            break
-                        else:
-                            if isinstance(pk, str):
-                                try:
-                                    import json
-                                    obj = json.loads(pk)
-                                    return
-                                except:
-                                    ...
-                            primary_keys.add(pk)
-                    else:
+                    if (pk := obj.get(key)) is None or pk in primary_keys:
                         break
+                    primary_keys.add(pk)
                 else:
                     return key
-                
             desc = {}
             keys = [key for key in keys if dtype[key] is not None]
             for key in keys:
                 match dtype[key].__name__:
                     case 'bool':
                         desc[key] = 'tinyint'
-
                     case 'int':
                         intvals = []
                         for obj in array:
@@ -229,37 +224,30 @@ class MySQLConnector(Database):
                                 intvals.append(s)
                             else:
                                 intvals.append(0)
-
                         if min(intvals) >= 0 and max(intvals) < 256:
                             desc[key] = 'tinyint'
                         else:
                             desc[key] = 'int'
-
                         if PRI is not None:
                             continue
-
                         PRI = detect_primary_key(array, key)
-                        
                     case 'float':
                         desc[key] = 'float'
-                        
                     case 'str':
                         length = 0
                         for obj in array:
                             if s := obj.get(key):
                                 length = max(len(s), length)
-
                         if length >= 768:
                             desc[key] = 'text'
                         else:
                             desc[key] = f'varchar({length})'
-                            if PRI is not None:
-                                continue
-    
-                            PRI = detect_primary_key(array, key)
+                            if PRI is None:
+                                PRI = detect_primary_key(array, key)
+                            elif (m := re.match(r"varchar\((\d+)\)", desc[PRI])) and length < int(m[1]) and (_PRI := detect_primary_key(array, key)):
+                                PRI = _PRI
                     case 'object':
                         desc[key] = 'json'
-                        
                     case _:
                         raise _
 
@@ -290,13 +278,13 @@ class MySQLConnector(Database):
                     if desc[key] == 'text':
                         return 1, 65536, key
 
-                    m = re.search('\d+', desc[key])
+                    m = re.search(r'\d+', desc[key])
                     return 1, int(m[0]), key
                          
                 return 2, len(key), key
 
             keys.sort(key=sort_key)
-            print(keys)
+            print('keys =', keys)
 
             desc = ',\n'.join(map(lambda key : f"`{key}` {desc[key]}", keys))
             sql_create_table = f"CREATE TABLE `{database}`.`{table}` ({desc}, PRIMARY KEY (`{PRI}`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci PARTITION BY KEY() PARTITIONS 8"
@@ -324,9 +312,8 @@ class MySQLConnector(Database):
             elif Type == 'mediumblob':
                 char_length[i] = 16 * 1024 * 1024 - 1
                 continue
-            
-            m = re.compile("varchar\((\d+)\)").match(Type)
-            if m:
+
+            if m := re.compile(r"varchar\((\d+)\)").match(Type):
                 char_length[i] = int(m[1])
                 
         truncate = kwargs.get('truncate')
@@ -416,13 +403,61 @@ class MySQLConnector(Database):
             rowcount += self.load_data_from_tsv(table, tsv, delete=delete, ignore=ignore, **kwargs)
         return rowcount
 
+    def process_file(self, file, **kwargs):
+        if file.endswith('.json'):
+            with open(file, 'r', encoding='utf8') as f:
+                yield json.loads(f.read())
+        elif file.endswith('.jsonl'):
+            with open(file, 'r', encoding='utf8') as f:
+                for line in f:
+                    yield json.loads(line)
+        elif file.endswith('.parquet'):
+            for _, row in pd.read_parquet(file).iterrows():
+                yield json.loads(row.to_json())
+        elif file.endswith('.zip'):
+            with zipfile.ZipFile(file, 'r') as zip_ref:
+                for file_name in zip_ref.namelist():
+                    if file_name.endswith('.json'):
+                        with zip_ref.open(file_name) as json_file:
+                            yield json.loads(json_file.read().decode('utf-8'))
+                    elif file_name.endswith('.jsonl'):
+                        with zip_ref.open(file_name) as jsonl_file:
+                            for line in jsonl_file:
+                                yield json.loads(line.decode('utf-8'))
+        elif file.endswith('.tar.gz'):
+            with tarfile.open(file, 'r:gz') as tar:
+                for member in tar.getmembers():
+                    if not member.isfile():
+                        continue
+                    if member.name.endswith('.json'):
+                        if f := tar.extractfile(member):
+                            yield json.loads(f.read().decode('utf-8'))
+                    elif member.name.endswith('.jsonl'):
+                        if f := tar.extractfile(member):
+                            for line in f:
+                                yield json.loads(line.decode('utf-8'))
+        elif file.endswith('.jsonl.gz'):
+            with gzip.open(file, 'rt', encoding='utf-8') as f:
+                for line in f:
+                    yield json.loads(line)
+        elif file.endswith('.json.gz'):
+            with gzip.open(file, 'rt', encoding='utf-8') as f:
+                yield json.loads(f.read())
+        elif file.endswith('.xlsx'):
+            map = kwargs.get('map', None)
+            for _, row in pandas.read_excel(file).iterrows():
+                obj = row.to_dict()
+                if map:
+                    if obj := map(obj):
+                        yield obj
+                else:
+                    yield obj
+
     def load_data(self, table, *args, **kwargs):
         if args:
             data, = args
             if isinstance(data, str):
                 if os.path.isdir(data):
-                    import json
-                    import pandas as pd
                     array = []
                     for file in std.listdir(data, ext='parquet'):
                         for _, row in pd.read_parquet(file).iterrows():
@@ -432,45 +467,58 @@ class MySQLConnector(Database):
                     return self.load_data_from_tsv(table, data, **kwargs)
             return self.load_data_from_list(table, data, **kwargs)
         else:
-            if replace := kwargs.get('replace'):
+            if os.path.isdir(table):
+                path = table
+                table = os.path.basename(table)
+            elif os.path.isfile(table):
+                path = table
+                table = os.path.splitext(os.path.basename(table))[0]
+            else:
+                path = None
+            if replace := kwargs.pop('replace', None):
                 ...
             else:
-                [[count]] = self.query(f"select count(*) from information_schema.tables WHERE table_name = '{table}'")
+                [[count]] = self.query(f"select count(*) from information_schema.tables WHERE table_name = '{table.replace('/', ':')}'")
                 if count:
                     print(table, 'already exists, skipping')
                     return
-            
-            from datasets import load_dataset
-            try:
-                data = load_dataset(table)
-            except ValueError as e:
-                err = str(e)
-                print(err)
-                if m:= re.search(r"Please pick one among the available configs: \['([^']+)', '([^']+)'\]", err):
-                    data = defaultdict(list)
-                    for config in m.groups():
-                        dataset = load_dataset(table, config)
-                        for key in dataset:
-                            data[key] += dataset[key]
-                else:
-                    raise e
-
             array = []
-            for key in data:
-                key = key.lower()
-                if key.startswith('train'):
-                    training = 1
-                elif key.startswith('test'):
-                    training = 0
-                elif key.startswith('dev') or key.startswith('val'):
-                    training = 2
+            if path:
+                if os.path.isdir(path):
+                    for file in tqdm(std.listdir(path, **kwargs)):
+                        array.extend(self.process_file(file, **kwargs))
                 else:
-                    print('unrecognized key', key, 'from', data.keys())
-                    training = 3
-                
-                for obj in data[key]:
-                    obj['training'] = training
-                    array.append(obj)
+                    array.extend(self.process_file(path, **kwargs))
+            else:
+                from datasets import load_dataset
+                try:
+                    data = load_dataset(table, **kwargs)
+                except ValueError as e:
+                    err = str(e)
+                    print(err)
+                    if m:= re.search(r"Please pick one among the available configs: \['([^']+)', '([^']+)'\]", err):
+                        data = defaultdict(list)
+                        for config in m.groups():
+                            dataset = load_dataset(table, config)
+                            for key in dataset:
+                                data[key] += dataset[key]
+                    else:
+                        raise e
+                for key in data:
+                    key = key.lower()
+                    if key.startswith('train'):
+                        training = 1
+                    elif key.startswith('test'):
+                        training = 0
+                    elif key.startswith('dev') or key.startswith('val'):
+                        training = 2
+                    else:
+                        print('unrecognized key', key, 'from', data.keys())
+                        training = 3
+                    
+                    for obj in data[key]:
+                        obj['training'] = training
+                        array.append(obj)
             return self.load_data(table.replace('/', ':'), array, replace=replace)
 
     def load_data_from_tsv(self, table, tsv, delete=True, **kwargs):
@@ -517,47 +565,6 @@ class MySQLConnector(Database):
                 exit()
 
         return rowcount
-
-    def read_from_excel(self):
-        from xlrd import open_workbook
-        for table in ['ecchatfaqcorpus', 'ecchatrecords', 'ecchatreportunknownquestion', 'eccommonstored', 'eccompany', 'ecoperatorbasicsettings', 'ecchatreportupdate']:
-            desc = self.show_create_table_not_connected('ucc.%s' % table)
-            print(desc)
-            fields = []
-            for field in desc.split('\n')[1:]:
-                field = field.strip()
-                if field.startswith('`'):
-                    fields.append(field)
-            print(fields)
-    
-            workbook = open_workbook(utility.workingDirectory + 'mysql/ucc_tables/%s.xlsx' % table)
-    
-            sheet = workbook.sheet_by_index(0)
-    
-    #         assert len(fields) == sheet.ncols
-    
-            datetime_index = []
-            for j in range(sheet.ncols):
-                if re.compile('DEFAULT NULL').search(fields[j]):
-                    datetime_index.append(j)
-            sql = 'insert into ucc.%s values (%s)' % (table, ','.join(['%s'] * len(fields)))
-            print(sql)
-    
-            for i in range(sheet.nrows):
-                array = sheet.row_values(i)
-                for j in range(sheet.ncols):
-                    if isinstance(array[j], str):
-                        if m := re.compile(r'(\d+)/(\d+)/(\d+) (\d+:\d+:\d+)').fullmatch(array[j]):
-                            groups = m.groups()
-                            array[j] = '%s-%s-%s %s' % (groups[2], groups[0], groups[1], groups[3])
-                print(array)
-                for j in datetime_index:
-                    if not array[j]:
-                        array[j] = None
-    
-                if sheet.ncols < len(fields):
-                    array += [None] * (len(fields) - sheet.ncols)
-                self.execute(sql, array)
 
     def select(self, *args, **kwargs):
         if isinstance(args[0], (list, tuple)):
@@ -660,11 +667,11 @@ instance = MySQLConnector()
 
 
 def is_number(Type):
-    return re.match('int\(\d+\)|double', Type)
+    return re.match(r'int\(\d+\)|double', Type)
 
 
 def is_int(Type):
-    return re.search('int\(\d+\)', Type)
+    return re.search(r'int\(\d+\)', Type)
 
 
 def is_float(Type):
@@ -672,11 +679,11 @@ def is_float(Type):
 
 
 def is_varchar(Type):
-    return re.match('varchar\(\d+\)', Type)
+    return re.match(r'varchar\(\d+\)', Type)
 
 
 def is_enum(Type):
-    return re.match('enum\((\S+)\)', Type)
+    return re.match(r'enum\((\S+)\)', Type)
     
 def quote(s):
     return s.replace("'", "''").replace("\\", r"\\")

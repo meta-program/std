@@ -1,8 +1,9 @@
-import os, json, time, inspect, functools, sys, signal, types, importlib.util
+import os, json, time, inspect, functools, sys, signal, types, math
 from enum import Enum, unique
 from tqdm import tqdm
-from os.path import dirname
 from functools import reduce
+from .metaprogramming import *
+from .metaprogramming import __set__
 
 
 def is_Windows():
@@ -215,8 +216,9 @@ class Object:
     def __len__(self):
         return len(self.__dict__)
 
-    def __eq__(self, rhs):
-        if len(self) != len(rhs):
+    # not using __eq__ to prevent hashing
+    def equals(self, rhs):
+        if not isinstance(rhs, Object) or len(self) != len(rhs):
             return False
 
         for k, v in self.items():
@@ -245,8 +247,7 @@ class JSONEncoder(json.JSONEncoder):
         if isinstance(obj, Object):
             return obj.__dict__
 
-        from inspect import isgenerator
-        if isgenerator(obj):
+        if inspect.isgenerator(obj):
             return [*obj]
 
         return super().default(self, obj)
@@ -401,6 +402,8 @@ class cached(property):
 class cached_cls(property):
 
     def __get__(self, obj, objtype=None):
+        if obj is None:
+            obj = objtype
         name = self.fget.__name__
         try:
             return obj.__cache__[name]
@@ -465,12 +468,22 @@ def indexOf(arr, value):
     return -1
 
 
-def indexFor(arr, fn):
+def findIndex(arr, fn):
     for i, val in enumerate(arr):
         if fn(val):
             return i
 
     return -1
+
+
+def scan_conditionally(arr, fn, scanElement, scanArray):
+    i = findIndex(arr, fn)
+    if i < 0:
+        scanArray(arr)
+    else:
+        scanArray(arr[:i])
+        scanElement(arr[i])
+        scan_conditionally(arr[i + 1:], fn, scanElement, scanArray)
 
 
 class _DecoratorContextManager:
@@ -642,54 +655,6 @@ def setitem(data, *args):
             __setitem__(data, key, value)
 
 
-def __set__(*cls):
-    if len(cls) == 1:
-        cls, = cls
-        if isinstance(cls, (types.ModuleType, type)):
-            # Package/Class Method Injection
-            def __set__(func):
-                __name__ = func.fget.__name__ if isinstance(func, property) else func.__name__
-                setattr(cls, __name__, func)
-                if isinstance(func, classmethod):
-                    assert getattr(cls, __name__).__func__ is func.__func__
-                elif isinstance(func, staticmethod):
-                    assert getattr(cls, __name__) is func.__func__
-                else:
-                    ...
-                    # assert getattr(cls, __name__) is func:
-                        
-                return func
-        else:
-            # cls is an object, thus we use func.__get__(cls) to create a method for it.
-            # Object Method Injection
-            def __set__(func):
-                '''
-usage of __get__ method:
-def function(self, *args, **kwargs):
-    # do something with args, kwargs and return a result
-    result = ...
-    return result
-self.function = function.__get__(self)
-now you can use:
-result = self.function(*args, **kwargs)
-                '''
-                __name__ = func.__name__
-                if func.__code__.co_varnames[0] == 'self':
-                    setattr(cls, __name__, func.__get__(cls))
-                    func = getattr(cls, __name__)
-                else:
-                    setattr(cls, __name__, func)
-                return func
-        return __set__
-    else:
-        def __set__(func):
-            global __set__
-            for c in cls:
-                __set__(c)(func)
-            return func
-    return __set__
-
-
 def yield_from_slices(data, slices):
     assert isinstance(slices, slice)
     start, stop, step = slices.start, slices.stop, slices.step
@@ -788,6 +753,19 @@ def clip(this, min, max):
     return this
 
 
+def delete_indices(arr, indices):
+    if not indices:
+        return arr
+    if not isinstance(indices, set):
+        indices = {*indices}
+
+    new_arr = []
+    for i in range(len(arr)):
+        if i in indices:
+            continue
+        new_arr.append(arr[i])
+    return new_arr
+
 def deleteIndices(arr, fn, postprocess=None):
     indicesToDelete = []
     is_binary = fn.__code__.co_argcount > 1
@@ -827,8 +805,8 @@ def batches(data, batch_size):
             yield batch
     else:
         size = len(data)
-        if divisor := int((size + batch_size - 1) / batch_size):
-            quotient = int(size / divisor)
+        if divisor := math.ceil(size / batch_size):
+            quotient = size // divisor
             sizes = [quotient] * divisor
 
             for i in range(size % divisor):
@@ -853,7 +831,7 @@ def flatten(data):
     return result
 
 
-def is_uniform(list):
+def is_constant(list):
     if isinstance(list, types.GeneratorType):
         list = [*list]
     for i in range(1, len(list)):
@@ -986,6 +964,19 @@ def array_split(self, pivot):
 
             return rest, self[pivot]
 
+    if isinstance(pivot, (list, tuple, set)):
+        bitvector = [False] * len(self)
+        for i in pivot:
+            bitvector[i] = True
+        former = []
+        latter = []
+        for i, arg in enumerate(self):
+            if bitvector[i]:
+                former.append(arg)
+            else:
+                latter.append(arg)
+        return former, latter
+
     former = []
     latter = []
     for arg in self:
@@ -1003,77 +994,6 @@ def array_merge(*array):
         yield from array
 
 
-def parse_args(argv, args, kwargs):
-    # print('in parse_args')
-    # print('argv =', argv)
-    # print('args =', args)
-    # print('kwargs =', kwargs)
-
-    for i, arg in enumerate(argv):
-        if arg.startswith('--'):
-            args.extend(argv[:i])
-            return parse_kwargs(argv[i:], args, kwargs)
-    else:
-        args.extend(argv)
-
-
-def parse_kwargs(argv, args, kwargs):
-    # print('in parse_kwargs')
-    # print('argv =', argv)
-    # print('args =', args)
-    # print('kwargs =', kwargs)
-    def get_val(value):
-        try:
-            return json.loads(value)
-        except:
-            return value
-
-    name = None
-    for i, arg in enumerate(argv):
-        if arg.startswith('--'):
-            if name is not None:
-                if kwargs[name] is None:
-                    kwargs[name] = True
-
-            name = arg[2:]
-            if '=' in name:
-                index = name.index('=')
-                name, arg = name[:index], name[index + 1:]
-                kwargs[name] = get_val(arg)
-                name = None
-        elif name is None:
-            return parse_args(argv[i:], args, kwargs)
-
-        elif name in kwargs:
-            if not isinstance(kwargs[name], list):
-                kwargs[name] = [kwargs[name]]
-            kwargs[name].append(get_val(arg))
-        else:
-            kwargs[name] = value = get_val(arg)
-            if value is None:
-                name = None
-
-    if name is not None:
-        if kwargs[name] is None:
-            kwargs[name] = True
-
-    return kwargs
-
-
-def argparse():
-    argv = sys.argv[1:]
-    args = []
-    kwargs = Object()
-    parse_args(argv, args, kwargs)
-
-    for key in [*kwargs.keys()]:
-        _key = key.replace('-', '_')
-        if _key != key:
-            kwargs[_key] = kwargs.pop(key)
-
-    return args, kwargs
-
-
 def kill():
     pid = os.getpid()
     if is_Linux():
@@ -1086,26 +1006,6 @@ def list_to_tuple(array):
     if isinstance(array, list):
         return tuple(list_to_tuple(a) for a in array)
     return array
-
-
-def import_module(name):
-    cwd = dirname(dirname(__file__))
-    path = name.replace('.', '/') + '.py'
-    
-    if not os.path.exists(location := cwd + '/' + path) and not os.path.exists(location := location.replace('.py', '/__init__.py')):
-        cwd = os.getcwd()
-        if not os.path.exists(location := cwd + '/' + path) and not os.path.exists(location := location.replace('.py', '/__init__.py')):
-            raise ImportError(f'No module named {name}')
-
-    spec = importlib.util.spec_from_file_location(name, location)
-
-    module = importlib.util.module_from_spec(spec)
-
-    spec.loader.exec_module(module)
-
-    assert name not in sys.modules
-    sys.modules[name] = module
-    return module
 
 
 def exec_generator(generator, output):
@@ -1121,33 +1021,66 @@ def prod(iterable):
     return reduce(lambda x, y: x * y, iterable)
 
 
-def compile_cpp(dirname):
+def compile_cpp(dirname, library=None):
     """Compile C++ cpp functions at runtime. Make sure this is invoked on a single process.
     """
     import os
     import subprocess
     if os.path.isfile(dirname):
         dirname = os.path.dirname(dirname)
-
+    ext = subprocess.check_output(
+        ["python3-config", "--extension-suffix"],
+        text=True
+    ).strip()
     dirname = os.path.abspath(dirname)
-    print(f"Compiling C++ functions in {dirname}")
-    command = ["make", "-C", dirname]
-    lock = f"{dirname}/Makefile.lock"
-    if not os.path.exists(lock):
-        with open(lock, 'w+') as _:
-            print("creating lock file", lock)
-            result = subprocess.run(command, capture_output=True, text=True)
-            if os.path.exists(lock):
-                os.remove(lock)
+    if os.path.isfile(so := os.path.join(dirname, library) + ext):
+        return
+    if rank := int(os.getenv('RANK', 0)):
+        print(f"you're compiling a dynamic link library ({so}) in a distributed setting in rank {rank}, but only the the node with rank 0 is compiling, listening to node with rank 0 for compiling...")
+        from time import sleep
+        while not os.path.isfile(so):
+            print(f"in rank {rank}, sleeping for 10 seconds, waiting node with rank 0 to finish compiling {so}...")
+            sleep(10)
+    else:
+        print("targeting dynamic link library =", so)
+        print(f"Compiling C++ functions in {dirname}")
+        result = subprocess.run(["make", "-C", dirname], capture_output=True, text=True)
+        print("Standard Output:")
+        print(result.stdout)
+        if result.returncode != 0:
+            import sys
+            print("Failed to compile the C++ functions")
+            print("Standard Error:")
+            print(result.stderr)
+            sys.exit(1)
 
-            print("Standard Output:")
-            print(result.stdout)
-            if result.returncode != 0:
-                import sys
-                print("Failed to compile the C++ functions")
-                print("Standard Error:")
-                print(result.stderr)
-                sys.exit(1)
+# [Array.splice](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/splice)
+# [array_splice](https://www.php.net/manual/en/function.array-splice.php)
+def array_splice(list, start, deleteCount=None, items=[]):
+    # Convert start to a valid index
+    n = len(list)
+    if start < 0:
+        start = max(n + start, 0)
+    else:
+        start = min(start, n)
+
+    # Default deleteCount for JavaScript-like behavior
+    if deleteCount is None:
+        deleteCount = n - start
+
+    # Handle negative deleteCount (PHP behavior: treat as 0)
+    deleteCount = max(0, deleteCount)
+
+    # Adjust deleteCount to not exceed available elements
+    deleteCount = min(deleteCount, n - start)
+
+    # Extract elements to be removed
+    removed = list[start:start + deleteCount]
+
+    # Replace the segment (automatic resizing handled by slice assignment)
+    list[start:start + deleteCount] = items
+
+    return removed
 
 if __name__ == '__main__':
     arr = [*range(10)]

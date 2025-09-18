@@ -2,17 +2,20 @@
     "tasks": [
         {
             "type": "cppbuild",
-            "label": "C/C++: g++ build active file",
-            "command": "/opt/rh/devtoolset-7/root/usr/bin/g++",
+            "label": "C/C++ build",
+            "command": "g++",
             "args": [
                 "-fdiagnostics-color=always",
                 "-g",
-                "${file}",
+                "-std=c++17",
+                "${workspaceFolder}/std/src/*.cpp",
+                "${workspaceFolder}/std/src/hash/*.cpp",
+                "${workspaceFolder}/std/src/std/*.cpp",
                 "-o",
-                "${fileDirname}/${fileBasenameNoExtension}"
+                "${workspaceFolder}/std/src/main.exe"
             ],
             "options": {
-                "cwd": "${fileDirname}"
+                "cwd": "${workspaceFolder}"
             },
             "problemMatcher": [
                 "$gcc"

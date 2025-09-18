@@ -1,5 +1,4 @@
-import numpy as np
-import random, os
+import random, os, numpy as np
 
 
 def extend(arr, mask, maxlength, padding_side):

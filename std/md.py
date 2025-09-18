@@ -19,39 +19,39 @@ from bs4 import BeautifulSoup, Tag, NavigableString
 @property
 def has_heading_elements(self):
     return any(
-        child.name and re.fullmatch('h\d', child.name)
+        child.name and re.fullmatch(r'h\d', child.name)
         for child in self.children
     )
 
 
 @__set__(NavigableString)
 @property
-def paragraph_depth(self):
+def answer_depth(self):
     return self.depth
 
 
 @__set__(Tag)
 @property
-def paragraph_depth(self):
+def answer_depth(self):
     [*children] = self.children
     if not children:
         return self.depth
-    return max(child.paragraph_depth for child in children)
+    return max(child.answer_depth for child in children)
     
 
 @__set__(NavigableString)
-def set_paragraph_depth(self, depth):
+def set_answer_depth(self, depth):
     self.depth = depth
 
 
 @__set__(Tag)
-def set_paragraph_depth(self, depth):
+def set_answer_depth(self, depth):
     self.depth = depth
     [*children] = self.children
     if self.has_heading_elements:
         level2children = defaultdict(list)
         for child in children:
-            if child.name and (m := re.fullmatch('h(\d)', child.name)):
+            if child.name and (m := re.fullmatch(r'h(\d)', child.name)):
                 level2children[int(m.group(1))].append(child)
 
         min_level = min(level2children.keys())
@@ -61,11 +61,11 @@ def set_paragraph_depth(self, depth):
 
         current_level = 0
         for child in children:
-            if child.name and (m := re.fullmatch('h(\d)', child.name)):
+            if child.name and (m := re.fullmatch(r'h(\d)', child.name)):
                 current_level = int(m.group(1))
             depth_child = current_level - min_level
             depth_child += depth_heading if current_level else depth
-            child.set_paragraph_depth(depth_child)
+            child.set_answer_depth(depth_child)
     else:
         depth_list = depth
         if self.name in ('ul', 'ol'):
@@ -80,7 +80,7 @@ def set_paragraph_depth(self, depth):
             is_list = lambda _: False
 
         for child in children:
-            child.set_paragraph_depth(depth_list if is_list(child) else depth)
+            child.set_answer_depth(depth_list if is_list(child) else depth)
 
 
 def md2html(markdown, preprocess=True):
@@ -94,16 +94,22 @@ def md2html(markdown, preprocess=True):
     return BeautifulSoup(html, 'html.parser')
 
 
-def answer_depth(answer):
+def answer_depth(answer, max=6):
+    result = {}
     html = md2html(answer)
-    html.set_paragraph_depth(1)
-    depth = html.paragraph_depth
-    return -1 if depth > 6 else depth
+    html.set_answer_depth(1)
+    depth = html.answer_depth
+    if depth > 6:
+        result['error'] = f'depth = {depth} exceeds {max}'
+        result['score'] = -1
+    else:
+        result['score'] = depth
+    return result
 
 
 def _answer_breadth(answer):
     html = md2html(answer)
-    html.set_paragraph_depth(1)
+    html.set_answer_depth(1)
     children = [*html.children]
     ol = []
     ul = []
@@ -115,10 +121,10 @@ def _answer_breadth(answer):
         elif child.name == 'ul':
             if len([child for child in child.children if child.name == "li"]) > 1:
                 ul.append(child)
-        elif child.name and re.fullmatch('h(\d)', child.name):
+        elif child.name and re.fullmatch(r'h(\d)', child.name):
             for j in range(i, len(children)):
                 child = children[j]
-                if child.name and (m := re.fullmatch('h(\d)', child.name)):
+                if child.name and (m := re.fullmatch(r'h(\d)', child.name)):
                     level = int(m.group(1))
                     if not heading[level]:
                         heading[level] = []
@@ -134,7 +140,7 @@ def _answer_breadth(answer):
                 return len(ol) + len(ul)
             children = [child for child in ol[0].children if child.name == 'li']
             if ul:
-                if any(child.paragraph_depth > 1 for child in children):
+                if any(child.answer_depth > 1 for child in children):
                     return len(children) + len(ul)
                 return 1 + len(ul)
             else:
@@ -154,12 +160,61 @@ def _answer_breadth(answer):
     return level + len(ol) + len(ul)
 
 
-def answer_breadth(answer):
+def answer_breadth(answer, max=30):
     result = {}
     breadth = _answer_breadth(answer)
-    if breadth > 10:
-        result['error'] = f'breadth = {breadth} exceeds 10'
+    if breadth > max:
+        result['error'] = f'breadth = {breadth} exceeds {max}'
         breadth = -1
 
     result['score'] = breadth
     return result
+
+def test_table(id=None, Rank=None, offset=0):
+    import json
+    from std import MySQL
+    kwargs = {
+        'where' : "json_length(answer) > 0 and source regexp 'answer_depth'",
+        'dictionary' : True,
+    }
+    if id:
+        kwargs |= {
+            'id' : id,
+        }
+    else:
+        kwargs |= {
+            'offset' : offset,
+            'limit' : 10000000,
+            'fetch_size' : 1024
+        }
+    for data in MySQL.instance.select('reward', **kwargs):
+        id = data['id']
+        offset += 1
+        print('testing id =', id, 'offset =', offset)
+        source = json.loads(data['source'])
+        for i, answer in enumerate(json.loads(data['answer'])):
+            try:
+                if Rank is not None:
+                    if i != Rank - 1:
+                        continue
+                if isinstance(answer, str):
+                    answer = [answer]
+                for answer in answer:
+                    depth = answer_depth(answer, max=float('inf'))['score']
+                    if depth != source[i]['answer_depth']:
+                        print(f"source[{i}]['answer_depth'] =", source[i]['answer_depth'])
+                        print('root.answer_depth =', depth)
+                        assert False
+            except Exception as e:
+                print('Rank', i + 1)
+                print(f"http://192.168.18.133:8000/label/query.php?id={id}")
+                import traceback
+                traceback.print_exc()
+                print(e)
+                return
+
+if __name__ == '__main__':
+    test_table(
+        id=151609, 
+        Rank=1
+    )

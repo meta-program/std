@@ -21,7 +21,7 @@ dot_negative_lookbehind = '|'.join(dot_negative_lookbehind)
 first_token = '|'.join([
     "[A-Z][a-z]*®?",
     "[A-Z][A-Z]+s?",
-    "[A-Z]\d+",
+    r"[A-Z]\d+",
 ])
 
 second_token = '|'.join([
@@ -40,11 +40,11 @@ dot_lookahead = '|'.join(dot_lookahead)
 def merge_next_line(texts, nextLine):
     if texts:
         prevLine = texts[-1]
-        if m := re.search('(?<=\n)[ \t]+$', prevLine):
+        if m := re.search(r'(?<=\n)[ \t]+$', prevLine):
             index = m.start()
             texts[-1] = prevLine[:index]
             return prevLine[index:] + nextLine
-        elif re.search('\b[a-z\d]! *$', prevLine) and re.match(' *[*-*/()]', nextLine):
+        elif re.search(r'\b[a-z\d]! *$', prevLine) and re.match(' *[*-*/()]', nextLine):
             # deal with mathematical factorial expression n! / r!
             texts[-1] += nextLine
             return ''
@@ -52,7 +52,7 @@ def merge_next_line(texts, nextLine):
 englishSentenceRegex = fr'''(?<={dot_lookbehind})(?<!{dot_negative_lookbehind})[.．]\s+(?={dot_lookahead})'''
 
 def sbd(text):
-    m = re.match('[;!?；！？…。\s]+', text)
+    m = re.match(r'[;!?；！？…。\s]+', text)
     if m:
         leadingDelimiters = m.group()
         text = text[len(leadingDelimiters):]
@@ -104,7 +104,7 @@ def sbd(text):
 
         hasContext = False
         boundaryIndex = 0
-        if re.match('.[,)\]}，）】｝》、的]', line):
+        if re.match(r'.[,)\]}，）】｝》、的]', line):
             # for the following '的 ' case, this sentence should belong to be previous one:
             # ”的文字，以及选项“是”和“否”。
             if line[1:3] == '的确':
@@ -114,7 +114,10 @@ def sbd(text):
             else:
                 # for the following comma case:
                 # ”,IEEE Jounalon Selected Areas in Communications,Vol.31,No.2,Feburary2013所述。
-                texts[-1] += line
+                if texts:
+                    texts[-1] += line
+                else:
+                    texts = [line]
         else:
             m = re.match(r'.[;.!?:；。！？：…\r\n]+', line)
             boundaryIndex = m.end() if m else 1
@@ -127,7 +130,7 @@ def sbd(text):
             texts[-1] += line[:boundaryIndex]  # sentence boundary detected! insert end of line here
             if boundaryIndex < len(line):
                 latter = line[boundaryIndex:]
-                if m := re.match('\s+', latter):
+                if m := re.match(r'\s+', latter):
                     texts[-1] += m.group()
                     latter = latter[m.end():]
                     if not latter:

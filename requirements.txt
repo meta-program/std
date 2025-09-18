@@ -5,3 +5,7 @@ pybind11
 markdown-it-py
 # from bs4 import BeautifulSoup, Tag, NavigableString
 beautifulsoup4
+
+# extra packages
+mysql-connector
+

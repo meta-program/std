@@ -1,3 +1,4 @@
+import functools, traceback
 from std import exec_generator
 
 
@@ -62,3 +63,23 @@ def compare(obj, _obj):
                 print('index =', key, 'error info:', err)
                 yield key
             yield from keys
+
+def default_on_error(default=None):
+    """
+    Decorator that catches exceptions and returns a default value.
+    """
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                traceback.print_exc()
+                args = '\n'.join(f"{arg!r}" for arg in args)
+                args = f"\nARGS:\n{args}" if args else ''
+                kwargs = '\n'.join(f"{key} = {value!r}" for key, value in kwargs.items())
+                kwargs = f"\nKWARGS:\n{kwargs}" if kwargs else ''
+                print(f"Error parsing:\n{e}{args}{kwargs}")
+                return default
+        return wrapper
+    return decorator
