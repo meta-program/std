@@ -49,7 +49,15 @@ export MYSQL_HOST=yourIPAddress
 
     @property
     def kwargs(self):
-        return dict(user=self.user, password=self.password, host=self.host, database=self.database, charset=self.charset, port=self.port)
+        return {
+            'user': self.user,
+            'password': self.password,
+            'host': self.host,
+            'database': self.database,
+            'charset': self.charset,
+            'port': self.port,
+            'auth_plugin': 'mysql_native_password'
+        }
 
     def cursor(self, **kwargs):
         return self.conn.cursor(**kwargs)
