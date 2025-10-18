@@ -712,8 +712,7 @@ class MarkdownSPAN(MarkdownArgs):
         return super().insert_token(caret, word, **kwargs)
 
     def insert_bar(self, caret, **kwargs):
-        args = self.args
-        for i in reversed(range(len(args))):
+        for i in reversed(range(len(self.args))):
             if new := self.process_inner_loop(i, **kwargs):
                 return new
         else:
@@ -2259,9 +2258,17 @@ class MarkdownDocument(MarkdownArgs):
         self.push(new)
         return new
 
+    def insert_bar(self, caret, **kwargs):
+        for i in reversed(range(len(self.args))):
+            if new := self.process_inner_loop(i, **kwargs):
+                return new
+        else:
+            new = MarkdownCaret(caret.indent, **kwargs)
+            self.push(MarkdownArgsBarSeparated([caret, new], caret.indent))
+            return new
+
     insert_asterisk = MarkdownI.insert_asterisk
     insert_underscore = MarkdownI.insert_underscore
-    insert_bar = MarkdownSPAN.insert_bar
     insert_backtick = MarkdownH.insert_backtick
     insert_dollar = MarkdownH.insert_dollar
 
