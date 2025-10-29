@@ -163,8 +163,8 @@ def _process_class(
     return base
 
 
-def _safeguard(cls, func):
-    if not hasattr(func, '__func__') and (__func__ := getattr(cls, func.__name__, None)):
+def _safeguard(cls, func, name):
+    if not hasattr(func, '__func__') and (__func__ := getattr(cls, name, None)):
         # safeguard the original method, so that the original func can be called within the injected method using cls.methodName.__func__(...)
         func.__func__ = __func__
 
@@ -178,8 +178,14 @@ def class_injection(cls, base, **kwargs):
         __annotations__ = {}
     setter = kwargs.get('__set__', None) or __set__(base)
     for key, value in cls.__dict__.items():
-        if isinstance(value, (property, types.FunctionType, staticmethod, classmethod)):
+        if isinstance(value, property):
             setter(value)
+        elif isinstance(value, (types.FunctionType, staticmethod, classmethod)):
+            if key == value.__name__:
+                setter(value)
+            else:
+                # created an alias for other functions
+                setattr(base, key, value)
         elif key in ('__module__', '__dict__', '__weakref__', '__doc__', '__annotations__') or key in __annotations__:
             # skip builtin attributes or dataclass fields
             continue
@@ -208,11 +214,13 @@ monkey-patches are classified into 3 classes:
                     match func:
                         case property():
                             # Class Injection of Property
+                            if func.__class__.__name__ == 'cached':
+                                _safeguard(cls, func, func.fget.__name__)
                             setattr(cls, func.fget.__name__, func)
                         # Class Injection of Method
                         case types.FunctionType():
-                            _safeguard(cls, func)
-                            setattr(cls, func.__name__, func)
+                            _safeguard(cls, func, name := func.__name__)
+                            setattr(cls, name, func)
                         case classmethod() | staticmethod():
                             setattr(cls, func.__name__, func)
                         case type():
@@ -224,7 +232,7 @@ monkey-patches are classified into 3 classes:
                 # Package Injection of Method/Class
                 def __set__(func):
                     if isinstance(func, types.FunctionType):
-                        _safeguard(cls, func)
+                        _safeguard(cls, func, func.__name__)
                     setattr(cls, func.__name__, func)
                     return func
             case _:
@@ -284,3 +292,14 @@ class Inject(type):
                             # package injection of function
                             return __set__(sys.modules[base.__module__])(cls)
         return __set__(*args)
+
+
+class Extract:
+    def __init__(self, func):
+        self.func = func
+
+    def __getattr__(self, co_name):
+        for const in self.func.__code__.co_consts:
+            if isinstance(const, types.CodeType) and const.co_name == co_name:
+                return types.FunctionType(const, self.func.__globals__)
+        raise AttributeError(f"No local function named {co_name!r} found in {self.func.__name__}")

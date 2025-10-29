@@ -397,6 +397,12 @@ class cached(property):
             value = self.fget(obj)
             obj.__dict__[name] = value
             return value
+        except AttributeError as e:
+            if obj is None and name in objtype.__dict__:
+                # mimic the implementation of property.__get__ when obj is None
+                assert objtype.__dict__[name] is self
+                return self
+            raise e
 
 
 class cached_cls(property):
