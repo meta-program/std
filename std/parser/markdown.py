@@ -191,7 +191,8 @@ class MarkdownText(Markdown):
         return False
 
     def htmlFormat(self):
-        return self.text.replace('<', '&lt;').replace('>', '&gt;')
+        html = self.text.replace('<', '&lt;').replace('>', '&gt;')
+        return re.sub(r'\\_', '&#95;', html)
 
     def strFormat(self):
         return self.text
@@ -2409,8 +2410,8 @@ def convert_block_latex(latex):
 
 if __name__ == '__main__':
     test()
-    test_table(
-        # id = 104341 # badcase
-        id=3644122, 
-        Rank=1
-    )
+    # test_table(
+    #     # id = 104341 # badcase
+    #     id=3644122, 
+    #     Rank=1
+    # )
