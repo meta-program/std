@@ -1038,7 +1038,7 @@ class XMLContainerTag(XMLArgs):
 
     @computed
     def physicalText(self):
-        s = str(self.tagBegin) + ''.join(str(arg) for arg in self.args)
+        s = str(self.tagBegin) + ''.join(str(arg) for arg in self.args[1:-1])
         if self.is_unbalanced:
             return s
         return s + str(self.tagEnd)
@@ -1280,7 +1280,7 @@ class XMLParser(AbstractParser):
     is_Paragraph = False
     is_token = True
     def __init__(self, parent=None, **kwargs):
-        super().__init__(XMLCaret(**kwargs))
+        super().__init__(XMLCaret(**kwargs, start_idx=0))
         self.root = XMLDocument([self.caret], 0, self)
         self.parent = parent
         self.indent = 0
@@ -1323,8 +1323,9 @@ class XMLParser(AbstractParser):
                 print(history)
             history += token
         start_idx = len(text)
-        self.parse("\n", start_idx=start_idx)
+        # self.parse("\n", start_idx=start_idx)
         self.parse('', start_idx=start_idx + 1)
+        return self.root
 
     @classmethod
     def match_XMLTagBegin(cls, arg, tagName):
