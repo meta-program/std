@@ -1,4 +1,4 @@
-import functools, traceback, sys, inspect
+import functools, traceback, sys, inspect, os
 from std import exec_generator, __set__
 
 
@@ -86,7 +86,7 @@ def default_on_error(default=None):
 
 try:
     import debugpy
-    def breakpoint(func, port=5678):
+    def attach(func, port=5678, reverse=False):
         """
         Decorator that set a breakpoint for a remote function within a worker/driver
         """
@@ -94,10 +94,49 @@ try:
         def wrapper(*args, **kwargs):
             try:
                 import debugpy
-                print(f"listen to 0.0.0.0:{port}")
-                debugpy.listen(("0.0.0.0", port))
-                print("debugpy.wait_for_client()")
-                debugpy.wait_for_client()
+                if reverse:
+                    '''launch.json
+{
+    "name": "Python: Remote Reverse-Attach",
+    "type": "debugpy",
+    "request": "attach",
+    "listen": {
+        "host": "0.0.0.0",
+        "port": 5678
+    },
+    "pathMappings": [
+        {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "/home/${user}/gitlab/patch"
+        }
+    ]
+}
+'''
+                    LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
+                    print(f"connect to {LOCAL_HOST_IP}:{port}")
+                    debugpy.connect((LOCAL_HOST_IP, 5678))
+                else:
+                    '''launch.json
+{
+    "name": "Python: Remote Attach",
+    "type": "debugpy",
+    "request": "attach",
+    "connect": {
+        "host": "${host}",
+        "port": 5678
+    },
+    "pathMappings": [
+        {
+            "localRoot": "${workspaceFolder}",
+            "remoteRoot": "/home/${user}/gitlab/patch"
+        }
+    ]
+}
+'''
+                    print(f"listen to 0.0.0.0:{port}")
+                    debugpy.listen(("0.0.0.0", port))
+                    print("debugpy.wait_for_client()")
+                    debugpy.wait_for_client()
                 print("starting debuging")
                 debugpy.breakpoint()
                 return func(*args, **kwargs)
@@ -130,29 +169,22 @@ except ImportError:
     ...
 
 
-def something_to_debug():
-    print("hello world")
-
-class ExampleClass:
-    def something_to_debug(self):
-        print("hello world")
-
 if __name__ == "__main__":
     # module function
     from std import search
-    breakpoint(search.sunday)
+    attach(search.sunday)
     # unbound class method
     from std.parser.xml import XMLParser
-    breakpoint(XMLParser.build)
+    attach(XMLParser.build)
     # staticmethod
     from std.sets import Union
-    breakpoint(Union.new)
+    attach(Union.new)
     # classmethod
     from std.parser.markdown import MarkdownI
-    breakpoint(MarkdownI.try_pattern)
+    attach(MarkdownI.try_pattern)
     # property
     from std.file import Text
-    breakpoint(Text.size)
+    attach(Text.size)
 
 
 
