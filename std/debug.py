@@ -86,15 +86,19 @@ def default_on_error(default=None):
 
 try:
     import debugpy
-    def attach(func, port=5678, reverse=False):
-        """
-        Decorator that set a breakpoint for a remote function within a worker/driver
-        """
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            try:
-                import debugpy
-                if reverse:
+    class Attach:
+        def __init__(self, port, reverse):
+            self.port = port
+            self.reverse = reverse
+
+        def breakpoint(self, func):
+            """
+            Decorator that set a breakpoint for a remote function within a worker/driver
+            """
+            port = self.port
+            @functools.wraps(func)
+            def breakpoint(*args, **kwargs):
+                if self.reverse:
                     '''launch.json
 {
     "name": "Python: Remote Reverse-Attach",
@@ -114,7 +118,7 @@ try:
 '''
                     LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
                     print(f"connect to {LOCAL_HOST_IP}:{port}")
-                    debugpy.connect((LOCAL_HOST_IP, 5678))
+                    debugpy.connect((LOCAL_HOST_IP, port))
                 else:
                     '''launch.json
 {
@@ -140,51 +144,28 @@ try:
                 print("starting debuging")
                 debugpy.breakpoint()
                 return func(*args, **kwargs)
-            except Exception as e:
-                traceback.print_exc()
-                print(e)
-                raise e
-        if isinstance(func, property):
-            module = sys.modules[func.fget.__module__]
-            new_func = type(func)(lambda self: wrapper(self))
-            cls = getattr(module, func.fget.__qualname__.split(".")[0])
-        elif inspect.isfunction(func) and func.__qualname__ == func.__name__:
-            cls = sys.modules[func.__module__]
-            assert getattr(cls, func.__name__) is func
-            new_func = wrapper
-        else:
-            # class unbound method
-            module = sys.modules[func.__module__]
-            cls = getattr(module, func.__qualname__.split(".")[0])
-            match cls.__dict__[func.__name__]:
-                case staticmethod():
-                    new_func = staticmethod(wrapper)
-                case classmethod():
-                    new_func = classmethod(wrapper)
-                case _:
-                    new_func = wrapper
-        __set__(cls)(new_func)
+            return breakpoint
 
+        def attach(self, func):
+            match func:
+                case staticmethod() | classmethod():
+                    return type(func)(self.breakpoint(func.__func__))
+                case property():
+                    return type(func)(self.breakpoint(func.fget))
+                case _:
+                    return self.breakpoint(func)
+
+    def attach(*args, port=5678, reverse=False):
+        attach = Attach(port, reverse).attach
+        if args:
+            return attach(*args)
+        return attach
 except ImportError:
     ...
 
 
 if __name__ == "__main__":
-    # module function
-    from std import search
-    attach(search.sunday)
-    # unbound class method
-    from std.parser.xml import XMLParser
-    attach(XMLParser.build)
-    # staticmethod
-    from std.sets import Union
-    attach(Union.new)
-    # classmethod
-    from std.parser.markdown import MarkdownI
-    attach(MarkdownI.try_pattern)
-    # property
-    from std.file import Text
-    attach(Text.size)
+    ...
 
 
 
