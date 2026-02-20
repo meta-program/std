@@ -99,7 +99,7 @@ try:
                     assert self.reverse == kwargs['reverse']
             return self
 
-        def __init__(self, port, reverse):
+        def __init__(self, port=5678, reverse=False):
             # __init__ will be called automatically after __new__ is called
             self.port = port
             self.reverse = reverse
@@ -179,8 +179,8 @@ try:
                 case _:
                     return self.breakpoint(func)
 
-    def attach(*args, port=5678, reverse=False):
-        attach = Attach(port=port, reverse=reverse).attach
+    def attach(*args, **kwargs):
+        attach = Attach(**kwargs).attach
         if args:
             return attach(*args)
         return attach
