@@ -100,6 +100,7 @@ try:
             return self
 
         def __init__(self, port, reverse):
+            # __init__ will be called automatically after __new__ is called
             self.port = port
             self.reverse = reverse
             self.is_client_connected = False
