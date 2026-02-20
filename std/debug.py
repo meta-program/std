@@ -103,7 +103,6 @@ try:
             # __init__ will be called automatically after __new__ is called
             self.port = port
             self.reverse = reverse
-            self.is_client_connected = False
 
         def breakpoint(self, func):
             """
@@ -130,8 +129,8 @@ try:
     ]
 }
 '''
-                    if not self.is_client_connected:
-                        self.is_client_connected = True
+                    if not hasattr(debugpy, "_is_listening"):
+                        debugpy._is_listening = True
                         LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
                         assert LOCAL_HOST_IP, "LOCAL_HOST_IP must be set for reverse debug mode"
                         print(f"connect to {LOCAL_HOST_IP}:{port}")
@@ -154,8 +153,8 @@ try:
     ]
 }
 '''
-                    if not self.is_client_connected:
-                        self.is_client_connected = True
+                    if not hasattr(debugpy, "_is_listening"):
+                        debugpy._is_listening = True
                         print(f"listen to 0.0.0.0:{port}")
                         debugpy.listen(("0.0.0.0", port))
                         print("debugpy.wait_for_client()")
