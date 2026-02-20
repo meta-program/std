@@ -180,7 +180,7 @@ try:
                     return self.breakpoint(func)
 
     def attach(*args, port=5678, reverse=False):
-        attach = Attach(port, reverse).attach
+        attach = Attach(port=port, reverse=reverse).attach
         if args:
             return attach(*args)
         return attach
