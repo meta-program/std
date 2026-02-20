@@ -1,4 +1,4 @@
-import functools, traceback, os
+import functools, traceback, os, inspect
 from std import exec_generator, __set__
 
 
@@ -94,27 +94,28 @@ try:
             else:
                 self = cls.instance
                 if 'port' in kwargs:
-                    assert self.port == kwargs['port']
+                    assert self.port == kwargs['port'], "port mismatch"
                 if 'reverse' in kwargs:
-                    assert self.reverse == kwargs['reverse']
+                    assert self.reverse == kwargs['reverse'], "reverse mismatch"
             return self
 
-        def __init__(self, port=5678, reverse=False):
+        def __init__(self, port=5678, reverse=True):
             # __init__ will be called automatically after __new__ is called
+            if hasattr(self, "_is_attached"):
+                return
             self.port = port
             self.reverse = reverse
+            self._is_attached = False
 
-        def breakpoint(self, func):
-            """
-            Decorator that set a breakpoint for a remote function within a worker/driver
-            """
+        def __ensure_debugger(self):
+            if self._is_attached:
+                return
+            self._is_attached = True
             port = self.port
-            @functools.wraps(func)
-            def wrapper(*args, **kwargs):
-                if self.reverse:
-                    '''launch.json
+            if self.reverse:
+                '''launch.json
 {
-    "name": "Python: Remote Reverse-Attach",
+    "name": "Python: Reverse-Attach",
     "type": "debugpy",
     "request": "attach",
     "listen": {
@@ -124,44 +125,69 @@ try:
     "pathMappings": [
         {
             "localRoot": "${workspaceFolder}",
-            "remoteRoot": "/home/${user}/gitlab/patch"
+            "remoteRoot": "${workspaceFolder}"
         }
     ]
 }
 '''
-                    if not hasattr(debugpy, "_is_listening"):
-                        debugpy._is_listening = True
-                        LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
-                        assert LOCAL_HOST_IP, "LOCAL_HOST_IP must be set for reverse debug mode"
-                        print(f"connect to {LOCAL_HOST_IP}:{port}")
-                        debugpy.connect((LOCAL_HOST_IP, port))
-                else:
-                    '''launch.json
+                localhost = os.getenv("localhost", "127.0.0.1")
+                print(f"connect to {localhost}:{port}")
+                debugpy.connect((localhost, port))
+                print("starting debugging")
+            else:
+                '''launch.json
 {
-    "name": "Python: Remote Attach",
+    "name": "Python: Forward-Attach",
     "type": "debugpy",
     "request": "attach",
     "connect": {
-        "host": "${host}",
+        "host": "127.0.0.1",
         "port": 5678
     },
     "pathMappings": [
         {
             "localRoot": "${workspaceFolder}",
-            "remoteRoot": "/home/${user}/gitlab/patch"
+            "remoteRoot": "${workspaceFolder}"
         }
     ]
 }
 '''
-                    if not hasattr(debugpy, "_is_listening"):
-                        debugpy._is_listening = True
-                        print(f"listen to 0.0.0.0:{port}")
-                        debugpy.listen(("0.0.0.0", port))
-                        print("debugpy.wait_for_client()")
-                        debugpy.wait_for_client()
-                print("starting debugging")
-                debugpy.breakpoint()
-                return func(*args, **kwargs)
+                try:
+                    print(f"try to listen to 0.0.0.0:{port}")
+                    debugpy.listen(("0.0.0.0", port))
+                except RuntimeError as e:
+                    if 'Address already in use' in str(e):
+                        # Ask OS to pick a free port
+                        host, port = debugpy.listen(("0.0.0.0", 0))
+                        print(f"Debugger listening on {host}:{port}")
+                        self.port = port
+                    else:
+                        raise e
+            print("debugpy.wait_for_client()")
+            debugpy.wait_for_client()
+            print("starting debugging")
+            debugpy.breakpoint()
+
+        def breakpoint(self, func):
+            """
+            Decorator that set a breakpoint for a remote function within a worker/driver
+            """
+            if inspect.iscoroutinefunction(func):
+                @functools.wraps(func)
+                async def wrapper(*args, **kwargs):
+                    self.__ensure_debugger()
+                    return await func(*args, **kwargs)
+            elif inspect.isasyncgenfunction(func):
+                @functools.wraps(func)
+                async def wrapper(*args, **kwargs):
+                    self.__ensure_debugger()
+                    async for value in func(*args, **kwargs):
+                        yield value
+            else:
+                @functools.wraps(func)
+                def wrapper(*args, **kwargs):
+                    self.__ensure_debugger()
+                    return func(*args, **kwargs)
             return wrapper
 
         def attach(self, func):
