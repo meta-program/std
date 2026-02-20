@@ -1,4 +1,4 @@
-import functools, traceback, sys, inspect, os
+import functools, traceback, os
 from std import exec_generator, __set__
 
 
@@ -87,9 +87,19 @@ def default_on_error(default=None):
 try:
     import debugpy
     class Attach:
-        def __init__(self, port, reverse):
-            self.port = port
-            self.reverse = reverse
+        instance = None
+        def __new__(cls, port, reverse):
+            if cls.instance is None:
+                self = object.__new__(cls)
+                self.port = port
+                self.reverse = reverse
+                self.is_client_connected = False
+                cls.instance = self
+            else:
+                self = cls.instance
+                assert self.port == port
+                assert self.reverse == reverse
+            return self
 
         def breakpoint(self, func):
             """
@@ -97,7 +107,7 @@ try:
             """
             port = self.port
             @functools.wraps(func)
-            def breakpoint(*args, **kwargs):
+            def wrapper(*args, **kwargs):
                 if self.reverse:
                     '''launch.json
 {
@@ -116,9 +126,12 @@ try:
     ]
 }
 '''
-                    LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
-                    print(f"connect to {LOCAL_HOST_IP}:{port}")
-                    debugpy.connect((LOCAL_HOST_IP, port))
+                    if not self.is_client_connected:
+                        self.is_client_connected = True
+                        LOCAL_HOST_IP = os.getenv("LOCAL_HOST_IP")
+                        assert LOCAL_HOST_IP, "LOCAL_HOST_IP must be set for reverse debug mode"
+                        print(f"connect to {LOCAL_HOST_IP}:{port}")
+                        debugpy.connect((LOCAL_HOST_IP, port))
                 else:
                     '''launch.json
 {
@@ -137,21 +150,28 @@ try:
     ]
 }
 '''
-                    print(f"listen to 0.0.0.0:{port}")
-                    debugpy.listen(("0.0.0.0", port))
-                    print("debugpy.wait_for_client()")
-                    debugpy.wait_for_client()
-                print("starting debuging")
+                    if not self.is_client_connected:
+                        self.is_client_connected = True
+                        print(f"listen to 0.0.0.0:{port}")
+                        debugpy.listen(("0.0.0.0", port))
+                        print("debugpy.wait_for_client()")
+                        debugpy.wait_for_client()
+                print("starting debugging")
                 debugpy.breakpoint()
                 return func(*args, **kwargs)
-            return breakpoint
+            return wrapper
 
         def attach(self, func):
             match func:
                 case staticmethod() | classmethod():
                     return type(func)(self.breakpoint(func.__func__))
                 case property():
-                    return type(func)(self.breakpoint(func.fget))
+                    return type(func)(
+                        self.breakpoint(func.fget),
+                        func.fset,
+                        func.fdel,
+                        func.__doc__,
+                    )
                 case _:
                     return self.breakpoint(func)
 
@@ -162,10 +182,3 @@ try:
         return attach
 except ImportError:
     ...
-
-
-if __name__ == "__main__":
-    ...
-
-
-
