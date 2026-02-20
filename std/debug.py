@@ -88,18 +88,21 @@ try:
     import debugpy
     class Attach:
         instance = None
-        def __new__(cls, port, reverse):
+        def __new__(cls, **kwargs):
             if cls.instance is None:
-                self = object.__new__(cls)
-                self.port = port
-                self.reverse = reverse
-                self.is_client_connected = False
-                cls.instance = self
+                cls.instance = self = super().__new__(cls)
             else:
                 self = cls.instance
-                assert self.port == port
-                assert self.reverse == reverse
+                if 'port' in kwargs:
+                    assert self.port == kwargs['port']
+                if 'reverse' in kwargs:
+                    assert self.reverse == kwargs['reverse']
             return self
+
+        def __init__(self, port, reverse):
+            self.port = port
+            self.reverse = reverse
+            self.is_client_connected = False
 
         def breakpoint(self, func):
             """
