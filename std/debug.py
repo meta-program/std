@@ -115,9 +115,7 @@ try:
             self._is_attached = True
             if "RAY_DEBUG" in os.environ:
                 # using ray distributed debugger for VSCode
-                print("starting debugging")
-                breakpoint()
-                return
+                return breakpoint()
             port = self.port
             if self.reverse:
                 '''launch.json
