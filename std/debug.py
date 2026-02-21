@@ -113,6 +113,11 @@ try:
             if self._is_attached:
                 return
             self._is_attached = True
+            if "RAY_DEBUG" in os.environ:
+                # using ray distributed debugger for VSCode
+                print("starting debugging")
+                breakpoint()
+                return
             port = self.port
             if self.reverse:
                 '''launch.json
@@ -135,7 +140,6 @@ try:
                 localhost = os.getenv("localhost", "127.0.0.1")
                 print(f"connect to {localhost}:{port}")
                 debugpy.connect((localhost, port))
-                print("starting debugging")
             else:
                 '''launch.json
 {
