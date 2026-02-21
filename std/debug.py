@@ -86,9 +86,11 @@ def default_on_error(default=None):
 
 try:
     import debugpy
-    class Attach:
+    class attach:
         instance = None
-        def __new__(cls, **kwargs):
+        def __new__(cls, *args, **kwargs):
+            if args:
+                return attach(**kwargs).settrace(*args)
             if cls.instance is None:
                 cls.instance = self = super().__new__(cls)
             else:
@@ -190,7 +192,7 @@ try:
                     return func(*args, **kwargs)
             return wrapper
 
-        def attach(self, func):
+        def settrace(self, func):
             match func:
                 case staticmethod() | classmethod():
                     return type(func)(self.breakpoint(func.__func__))
@@ -203,11 +205,5 @@ try:
                     )
                 case _:
                     return self.breakpoint(func)
-
-    def attach(*args, **kwargs):
-        attach = Attach(**kwargs).attach
-        if args:
-            return attach(*args)
-        return attach
 except ImportError:
     ...
