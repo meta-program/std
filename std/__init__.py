@@ -2,6 +2,8 @@ import os, json, time, inspect, functools, sys, signal, types, math
 from enum import Enum, unique
 from tqdm import tqdm
 from functools import reduce
+from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 from .metaprogramming import *
 from .metaprogramming import __set__
 
@@ -47,7 +49,7 @@ def rindex(arr, e):
         raise ValueError(f'{e} is not in list')
 
 
-def batch_map(proc, items, processes=8):
+def batch_map(proc, items, **kwargs):
     '''
 # usage:
 # pip install std.algorithm
@@ -67,20 +69,29 @@ if __name__ == '__main__':
     rowcount = MySQL.instance.executemany('update your_table set label = %s, training = 2 where id = %s', [*zip(label, id)])
     print('rowcount =', rowcount)
     '''
-
-    from multiprocessing import Pool
-    with Pool(processes=processes) as pool:
-        return pool.map(proc, items)
+    # kwargs possibly uses chunksize
+    if max_workers := kwargs.pop('max_workers', None):
+        # items must be an iterable of tuple
+        if proc.__code__.co_argcount == 1:
+            items = ((item,) for item in items)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            return [*executor.map(proc, *zip(*items), **kwargs)]
+    else:
+        processes = kwargs.pop('processes', 8)
+        # items must be an iterable of picklable object
+        with Pool(processes=processes) as pool:
+            if proc.__code__.co_argcount == 1:
+                return pool.map(proc, items, **kwargs)
+            else:
+                return pool.starmap(proc, items, **kwargs)
 
 
 def batch_imap(proc, items, processes=8):
-    from multiprocessing import Pool
     with Pool(processes=processes) as pool:
         yield from pool.imap(proc, items)
 
 
 def batch_imap_unordered(proc, items, processes=8):
-    from multiprocessing import Pool
     with Pool(processes=processes) as pool:
         yield from pool.imap_unordered(proc, items)
 
