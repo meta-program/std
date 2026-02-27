@@ -13,20 +13,20 @@ class Database:
     # usage:
     '''vim ~/.bashrc
 export MYSQL_USER=yourName
-export MYSQL_PASSWORD=yourPassword
+export MYSQL_PWD=yourPassword
 export MYSQL_HOST=yourIPAddress
     '''
 
     def create_database(self):
         cursor = self.cursor()
         try:
-            cursor.execute("CREATE DATABASE {} DEFAULT CHARACTER SET 'utf8'".format(self.DB_NAME))
+            cursor.execute("CREATE DATABASE {} DEFAULT CHARACTER SET '{}'".format(self.database, self.charset))
         except Exception as err:
             print("Failed creating database: {}".format(err))
 
     def __init__(self):
         self.user = os.environ.get('MYSQL_USER', 'user')
-        self.password = os.environ.get('MYSQL_PASSWORD', 'user')
+        self.password = os.environ.get('MYSQL_PWD', 'user')
         self.host = os.environ.get('MYSQL_HOST', '127.0.0.1')
         self.port = os.environ.get('MYSQL_PORT', '3306')
         self.database = os.environ.get('MYSQL_DATABASE', 'corpus')
