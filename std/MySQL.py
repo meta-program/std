@@ -25,8 +25,8 @@ export MYSQL_HOST=yourIPAddress
             print("Failed creating database: {}".format(err))
 
     def __init__(self):
-        self.user = os.environ.get('MYSQL_USER', 'user')
-        self.password = os.environ.get('MYSQL_PWD', 'user')
+        self.user = os.environ.get('USERNAME') if os.name == 'nt' else os.environ.get('USER')
+        self.password = os.environ.get('MYSQL_PWD')
         self.host = os.environ.get('MYSQL_HOST', '127.0.0.1')
         self.port = os.environ.get('MYSQL_PORT', '3306')
         self.database = os.environ.get('MYSQL_DATABASE', 'corpus')
