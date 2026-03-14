@@ -14,10 +14,9 @@ def import_module(name):
     spec = importlib.util.spec_from_file_location(name, location)
 
     module = importlib.util.module_from_spec(spec)
-
-    spec.loader.exec_module(module)
     if name not in sys.modules:
         sys.modules[name] = module
+    spec.loader.exec_module(module)
     return module
 
 
