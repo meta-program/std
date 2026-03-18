@@ -9,7 +9,7 @@ def import_module(name):
     if not os.path.exists(location := cwd + '/' + path) and not os.path.exists(location := location.replace('.py', '/__init__.py')):
         cwd = os.getcwd()
         if not os.path.exists(location := cwd + '/' + path) and not os.path.exists(location := location.replace('.py', '/__init__.py')):
-            raise ImportError(f'No module named {name}')
+            return importlib.import_module(name)
 
     spec = importlib.util.spec_from_file_location(name, location)
 
