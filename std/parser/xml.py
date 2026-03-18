@@ -1280,7 +1280,7 @@ class XMLParser(AbstractParser):
     is_Paragraph = False
     is_token = True
     def __init__(self, parent=None, **kwargs):
-        super().__init__(XMLCaret(**kwargs, start_idx=0))
+        super().__init__(XMLCaret(**kwargs))
         self.root = XMLDocument([self.caret], 0, self)
         self.parent = parent
         self.indent = 0
