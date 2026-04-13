@@ -151,11 +151,10 @@ def json_encode(data, utf8=False, indent=None):
 
 
 class Object:
-
+    __frozen__ = False
     def __init__(self, *args, **kwargs):
         if args:
             kwargs, = args
-        self.__frozen__ = kwargs.pop('__frozen__', False)
         for key, value in kwargs.items():
             if isinstance(value, dict):
                 value = Object(value)
