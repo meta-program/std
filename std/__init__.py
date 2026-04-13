@@ -155,7 +155,7 @@ class Object:
     def __init__(self, *args, **kwargs):
         if args:
             kwargs, = args
-
+        self.__frozen__ = kwargs.pop('__frozen__', False)
         for key, value in kwargs.items():
             if isinstance(value, dict):
                 value = Object(value)
@@ -178,6 +178,8 @@ class Object:
         self.__dict__[index] = rhs
 
     def __getattr__(self, index):
+        if self.__frozen__:
+            return self.__dict__[index]
         return self.__dict__.get(index, None)
 
     def __delattr__(self, index):
