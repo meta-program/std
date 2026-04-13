@@ -177,9 +177,11 @@ class Object:
         self.__dict__[index] = rhs
 
     def __getattr__(self, index):
-        if self.__frozen__:
+        try:
             return self.__dict__[index]
-        return self.__dict__.get(index, None)
+        except KeyError as e:
+            if self.__frozen__:
+                raise e
 
     def __delattr__(self, index):
         self.__dict__.pop(index, None)
