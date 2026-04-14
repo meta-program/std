@@ -1,6 +1,70 @@
-import mysql.connector, std, re, random, time, os, json, pandas as pd, zipfile, tarfile, gzip, pandas
+import importlib.util, mysql.connector, std, re, random, time, os, json, pandas as pd, zipfile, tarfile, gzip, pandas
 from tqdm import tqdm
 from collections import defaultdict
+
+
+def load_dataset(dataset_id, **ds_kw):
+    """``MsDataset`` when ModelScope is installed; otherwise HuggingFace ``datasets``."""
+    from datasets import load_dataset as hf_load_dataset
+
+    if importlib.util.find_spec('modelscope') is None:
+        return hf_load_dataset(dataset_id, **ds_kw)
+
+    from modelscope import MsDataset
+    import modelscope
+
+    ms_kw = dict(ds_kw)
+    subset_name = ms_kw.pop('name', 'default')
+    revision = ms_kw.pop('revision', None)
+    if revision == 'main':
+        revision = 'master'
+    streaming = ms_kw.pop('streaming', False)
+    download_mode = ms_kw.pop('download_mode', 'reuse_dataset_if_exists')
+    split_kw = ms_kw.pop('split', None)
+    for noisy in ('num_proc', 'hub_token', 'cache_dir'):
+        ms_kw.pop(noisy, None)
+
+    extra = {'download_mode': download_mode, 'use_streaming': streaming}
+    if revision is not None:
+        extra['version'] = revision
+    try:
+        from packaging import version as pkg_version
+
+        if pkg_version.parse(modelscope.__version__) >= pkg_version.parse('1.29.1'):
+            extra['trust_remote_code'] = True
+    except Exception:
+        pass
+    extra.update(ms_kw)
+
+    def _to_hf(ds):
+        return ds._hf_ds if hasattr(ds, '_hf_ds') else ds
+
+    def _load_one(splt):
+        return _to_hf(
+            MsDataset.load(dataset_id, subset_name=subset_name, split=splt, **extra))
+
+    if split_kw is not None:
+        return _load_one(split_kw)
+
+    out = {}
+    for splt in ('train', 'validation', 'test', 'dev', 'val'):
+        print(f'[load_dataset] ModelScope {dataset_id!r} split={splt!r} …', flush=True)
+        try:
+            ds = _load_one(splt)
+            if hasattr(ds, '__len__') and len(ds) == 0:
+                print(f'[load_dataset] split={splt!r} empty, skip', flush=True)
+                continue
+            print(f'[load_dataset] split={splt!r} rows={len(ds)}', flush=True)
+            out[splt] = ds
+        except Exception as e:
+            print(f'[load_dataset] split={splt!r} failed: {e!r}', flush=True)
+            continue
+    if out:
+        return out
+    raise RuntimeError(
+        'ModelScope MsDataset.load found no standard splits for %r (subset_name=%r). '
+        'Try a ModelScope dataset id, pass split= / name=, or use an environment without '
+        'modelscope to load from the Hugging Face Hub with datasets.' % (dataset_id, subset_name))
 
 
 def format_table(table):
@@ -498,16 +562,15 @@ class MySQLConnector(Database):
                 else:
                     array.extend(self.process_file(path, **kwargs))
             else:
-                from datasets import load_dataset
                 try:
                     data = load_dataset(table, **kwargs)
                 except ValueError as e:
                     err = str(e)
                     print(err)
-                    if m:= re.search(r"Please pick one among the available configs: \['([^']+)', '([^']+)'\]", err):
+                    if m := re.search(r"Please pick one among the available configs: \['([^']+)', '([^']+)'\]", err):
                         data = defaultdict(list)
-                        for config in m.groups():
-                            dataset = load_dataset(table, config)
+                        for name in m.groups():
+                            dataset = load_dataset(table, name=name)
                             for key in dataset:
                                 data[key] += dataset[key]
                     else:
@@ -524,7 +587,7 @@ class MySQLConnector(Database):
                         print('unrecognized key', key, 'from', data.keys())
                         training = 3
                     
-                    for obj in data[key]:
+                    for obj in tqdm(data[key], desc=f'load_data rows[{key}]'):
                         obj['training'] = training
                         array.append(obj)
             return self.load_data(table.replace('/', ':'), array, replace=replace)
