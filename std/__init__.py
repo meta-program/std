@@ -4,8 +4,6 @@ from tqdm import tqdm
 from functools import reduce
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import Pool
-from .metaprogramming import *
-from .metaprogramming import __set__
 
 
 def is_Windows():
