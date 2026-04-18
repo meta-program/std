@@ -1,5 +1,5 @@
 import functools, traceback, os, inspect
-from std import exec_generator, __set__
+from std import exec_generator
 
 
 def compare_element(v, _v):
